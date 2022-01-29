@@ -6,4 +6,4 @@ The purpose of this repo is to demonstrate to RTS my usage of Ansible. This is a
 
 The setups are fairly simple and meant to get the skeletons of the servers stood up and able to communicate appropriately (you can see more details in the comments of the YAML file).
 
-There's definintely a good chunk missing that I would like to delve into deeper (logging, IAM, pulling code), but this was a fun exercise nonetheless.
+There's definintely a good chunk missing that I would like to delve into deeper (logging, IAM, pulling code), but this was still a fun exercise.
