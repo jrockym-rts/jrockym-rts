@@ -1,0 +1,172 @@
+---
+# Tasks to perform on all systems in inventory
+- hosts: all
+
+  # Perform the following tasks for all as root
+  become: yes
+
+  tasks:
+
+    # Install firewalld for some security on listening devices. Create a package var for future expansion
+  - name: install packages for security via firewalls
+    yum:
+      name: iptables
+      state: present
+
+    # Instead we'll use the native iptables module to allow inbound SSH
+  - name: IPtables allow inbound rule for SSH
+    ansible.builtin.iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_port: 22
+      ctstate: NEW
+      jump: ACCEPT
+
+
+# With firewalling enabled on all remote boxes, we can perform individual customization on each box
+
+# Configuration for a vanilla HTTP server. 
+- hosts: web
+
+  # Perform the following as root
+  become: yes
+
+  tasks:
+
+    # Install apache
+  - name: install webserver(apache)
+    yum:
+      name: httpd
+      state: present
+
+    # Start and enable the apache service so it persists post-reboot
+  - name: start apache
+    service:
+      name: httpd
+      enabled: yes
+      state: started
+    
+    # Allow port 80 access for HTTP access
+  - name: IPtables allow inbound rule for HTTP
+    ansible.builtin.iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_port: 80
+      ctstate: NEW
+      jump: ACCEPT 
+  
+    # Copy over a dummy index page so a 200 (OK)
+  - name: move dummy page to webserver root
+    ansible.builtin.copy:
+      src: ~/ansible/www/index.html
+      dest: /var/www/html/index.html
+      mode: '604'
+
+    # Use URI module to check for status 200 (OK) returned
+  - name: check that webserver is running
+    uri:
+      url: http://{{ ansible_host }}
+
+# Configuration for a database server
+- hosts: db
+  
+  # Perform the following as root
+  become: yes
+
+  tasks:
+    
+    # Install packages relevant to MariaDB, including pip for custom ansible module
+  - name: install db(mysql)
+    yum:
+      name:
+      - mariadb
+      - mariadb-devel
+      - mariadb-server
+      - python-pip
+      - gcc
+      state: present
+ 
+    # Start SQL service and persist for reboots
+  - name: start sql
+    service:
+      name: mariadb
+      enabled: yes
+      state: started
+
+    # Utilize the pip module to install PyMySQL
+  - name: Install PyMySQL
+    pip:
+      name:
+      - PyMySQL
+      state: present
+      executable: pip
+
+    # Configure the root user with a password and only allow access locally
+  - name: config root user
+    mysql_user:
+      login_password: "{{ sql_password }}"
+      check_implicit_admin: yes
+      name: root
+      host: "{{ item }}"
+      password: "{{ sql_password }}"
+      state: present
+    with_items:
+      - localhost
+      - 127.0.0.1
+      - ::1
+
+    # Create user that will query the DB from the app server
+  - name: config app user
+    mysql_user:
+      login_password: "{{ sql_password }}"
+      check_implicit_admin: yes
+      name: appuser
+      host: "{{ hostvars['tomcat']['ansible_hostname'] }}"
+      password: "{{ sql_password }}"
+      state: present
+    
+    # Open up port 3306 for SQL listening
+  - name: IPtables allow inbound rule for SQL
+    ansible.builtin.iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_port: 3306
+      ctstate: NEW
+      jump: ACCEPT 
+
+#  Configure the Tomcat server for apps
+- hosts: app
+  
+  # Perform the following as root
+  become: yes
+  
+  # Install tomcat
+  tasks:
+  - name: Install tomcat package
+    yum:
+      name:
+      - tomcat
+      - tomcat-webapps
+      - tomcat-admin-webapps
+      state: present
+    
+    # Allow communication to the Tomcat management webapp
+  - name: IPtables allow inbound rule for Tomcat
+    ansible.builtin.iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_port: 8080
+      ctstate: NEW
+      jump: ACCEPT 
+
+    # Enable the tomcat service and set to persist after reboot 
+  - name: Enable Tomcat service
+    service:
+      name: tomcat
+      enabled: yes
+      state: started
+
+    # Check that port 8080 on tomcat is returning data
+  - name: check that webserver is running
+    uri:
+      url: http://{{ ansible_host }}:8080
